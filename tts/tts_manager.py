@@ -73,12 +73,8 @@ class TTSManager:
         
         # Pre-process the text using the provided processor
         if text_processor:
-            text = text_processor.remove_parentheses(text)
             text = text_processor.html_to_plain_qt(text)
-            language = text_processor.decide_language(text)
             text = text_processor.replace_names(text)
-            if language != self.voice_language:
-                text = text_processor.libre_translate(text, source=language, target=self.voice_language)
             if self.voice_language == 'ja' and (character_name == "狛枝凪斗" or character_name == "仆役" or character_name == "小狛枝"):
                 text = text_processor.replace_watashi(text)
         

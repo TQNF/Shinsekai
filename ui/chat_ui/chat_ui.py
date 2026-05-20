@@ -17,6 +17,7 @@ from PySide6.QtGui import (
     QPixmap,
     QFontMetrics,
     QShowEvent,
+    QColor,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -28,6 +29,8 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QSizePolicy,
     QToolTip,
+    QScrollArea,
+    QGraphicsDropShadowEffect,
 )
 import os
 
@@ -318,6 +321,7 @@ class ChatUIWindow(DesktopToolbarMixin, DesktopMenuMixin, QWidget):
         self.cg_widget.lower() # 初始时，CG 在背景上方
         self.sprite_panel.raise_() # 立绘在 CG 上方
         self.dialog_label.raise_() # 对话框和选项在所有图像组件上方
+        self.dialog_scroll.raise_() # 滚动区域也在最上层
         self.name_label.raise_()
         self.options_widget.raise_()
 
@@ -343,6 +347,7 @@ class ChatUIWindow(DesktopToolbarMixin, DesktopMenuMixin, QWidget):
             
             # 确保对话框等元素在 CG 之上
             self.dialog_label.raise_()
+            self.dialog_scroll.raise_()
             self.name_label.raise_()
             self.options_widget.raise_()
             self.numeric_info_label.lower()  # below sprite layer
@@ -490,12 +495,30 @@ class ChatUIWindow(DesktopToolbarMixin, DesktopMenuMixin, QWidget):
             styles.dialog_label_initial(self.font_size, DIALOG_FRAME_PATH)
         )
         self.dialog_label.setWordWrap(True)
-        self.dialog_label.hide()
-        self.dialog_label.setParent(self.image_container)
+
+        self.dialog_scroll = QScrollArea()
+        self.dialog_scroll.setWidgetResizable(True)
+        self.dialog_scroll.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.dialog_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.dialog_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.dialog_scroll.setWidget(self.dialog_label)
+        self.dialog_scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollBar:vertical { background: rgba(255,255,255,30); width: 6px; border-radius: 3px; }"
+            "QScrollBar::handle:vertical { background: rgba(255,255,255,80); border-radius: 3px; min-height: 20px; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; border: none; }"
+        )
+        self.dialog_scroll.hide()
+        self.dialog_scroll.setParent(self.image_container)
 
         self.name_label = QLabel()
         self.name_label.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.name_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+        shadow = QGraphicsDropShadowEffect(self.name_label)
+        shadow.setBlurRadius(12)
+        shadow.setOffset(0, 1)
+        shadow.setColor(QColor(0, 0, 0, 220))
+        self.name_label.setGraphicsEffect(shadow)
         self.name_label.setStyleSheet(
             f"background:transparent; color:white;"
             f"font-size:{self.font_size}; font-weight:700; "
@@ -668,6 +691,7 @@ class ChatUIWindow(DesktopToolbarMixin, DesktopMenuMixin, QWidget):
     def _layout_dialog_label_block(self) -> None:
         """按当前 image_container 尺寸排对话框与跳过按钮。调用前已将 _full_text 赋好。"""
         dlg = self.dialog_label
+        scroll = self.dialog_scroll
         sizing = getattr(dlg, "_full_text", "") or dlg.text()
         if not sizing:
             return
@@ -682,13 +706,13 @@ class ChatUIWindow(DesktopToolbarMixin, DesktopMenuMixin, QWidget):
         dlg.setFixedWidth(new_width)
         dlg.adjustSize()
         avail_h = max(1, (self.image_container.height() or self.height()) - self._bottom_chrome_h)
-        min_height = int(avail_h * 0.3)
-        max_height = int(avail_h * 0.6)
+        min_height = int(avail_h * 0.15)
+        max_height = int(avail_h * 0.3)
         height = max(min_height, dlg.height())
         height = min(height, max_height)
         y = self._above_chrome_y(height, gap=4)
         y = max(0, min(y + ch.dialog_offset_y, avail_h - height))
-        dlg.setGeometry(margin_width, y, new_width, height)
+        scroll.setGeometry(margin_width, y, new_width, height)
 
         # Position name label above dialog
         nl = getattr(self, "name_label", None)
@@ -698,17 +722,17 @@ class ChatUIWindow(DesktopToolbarMixin, DesktopMenuMixin, QWidget):
             name_y = max(0, y - nl.height() - 3)
             nl.setGeometry(margin_width, name_y, new_width, nl.height())
 
-        if dlg.isVisible():
+        if scroll.isVisible():
             if getattr(self, "skip_button", None) is not None:
                 self.skip_button.move(
-                    dlg.geometry().right() - self.skip_button.width() - 20,
-                    dlg.geometry().bottom() - self.skip_button.height() - 10,
+                    scroll.geometry().right() - self.skip_button.width() - 8,
+                    scroll.geometry().bottom() - self.skip_button.height() - 8,
                 )
             if getattr(self, "_reroll_btn", None) is not None:
                 rb = self._reroll_btn
                 rb.move(
-                    dlg.geometry().right() - rb.width() - 4,
-                    dlg.geometry().top() - rb.height() - 6,
+                    scroll.geometry().right() - rb.width() - 8,
+                    scroll.geometry().top() - rb.height() - 6,
                 )
                 rb.raise_()
                 rb.show()
@@ -719,7 +743,7 @@ class ChatUIWindow(DesktopToolbarMixin, DesktopMenuMixin, QWidget):
             return
         if self.options_widget.isVisible() and self.current_options:
             self.setOptions(self.current_options)
-        elif self.dialog_label.isVisible():
+        elif self.dialog_scroll.isVisible():
             self._layout_dialog_label_block()
     
     def setup_image_thread(self):
@@ -1166,6 +1190,7 @@ class ChatUIWindow(DesktopToolbarMixin, DesktopMenuMixin, QWidget):
                 self.name_label.show()
                 self.name_label.raise_()
                 text = re.sub(r'<b[^>]*>[^<]+</b>[：:]?\s*', '', text, count=1)
+                text = re.sub(r'[\u2014\u2013—\-–]{2,}', '', text)
             elif hasattr(self, 'name_label'):
                 self.name_label.hide()
 
@@ -1173,14 +1198,14 @@ class ChatUIWindow(DesktopToolbarMixin, DesktopMenuMixin, QWidget):
             # Temporarily show full text for layout measurement, then typewriter overwrites
             self.dialog_label.setText(text)
             self.dialog_label._full_text = text
-            self.dialog_label.show()
+            self.dialog_scroll.show()
             self.skip_button.show()
             self._layout_dialog_label_block()
             self.dialog_label.setDisplayWords(text)
             self._raise_input_and_toolbar()
             self.display_words_changed.emit(text)
         else:
-            self.dialog_label.hide()
+            self.dialog_scroll.hide()
             if hasattr(self, 'name_label'):
                 self.name_label.hide()
             self.skip_button.hide()
@@ -1247,7 +1272,7 @@ class ChatUIWindow(DesktopToolbarMixin, DesktopMenuMixin, QWidget):
         self.current_options = optionList
         print(f"Setting options: {optionList}")
         # 1. 互斥：隐藏对话框标签
-        self.dialog_label.hide()
+        self.dialog_scroll.hide()
         if hasattr(self, 'name_label'):
             self.name_label.hide()
 

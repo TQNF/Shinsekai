@@ -86,10 +86,11 @@ class GPTSoVitsAdapter(TTSAdapter):
             "text_lang": kwargs.get("text_lang", "ja"),
             "text_split_method": "cut5",
             "batch_size": 1,
-            "speed_factor": kwargs.get("speed_factor", 1.4),
+            "speed_factor": kwargs.get("speed_factor", 1.0),
         }
 
         try:
+            print(f"GPT-SoVITS: 发送TTS请求 text='{text[:80]}...' text_lang={params['text_lang']} speed={params['speed_factor']}")
             response = requests.post(self.tts_server_url + "tts", json=params)
             response.raise_for_status() # Raise an exception for bad status codes
 

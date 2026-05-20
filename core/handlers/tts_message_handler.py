@@ -7,6 +7,7 @@ TTS worker 用 LLM dialog 处理器（见 handler_registry.MessageHandler）。
 from __future__ import annotations
 
 import re
+import time
 import traceback
 from pathlib import Path
 from typing import List
@@ -169,14 +170,16 @@ class DefaultCharacterTtsHandler(MessageHandler):
                 if text_processor:
                     speech_text = text_processor.remove_parentheses(speech_text)
 
-                # 根据配置决定是否分句发送
+                speech_text = re.sub(r'[\u2014\u2013—\-–]{2,}', '', speech_text)
+                print(f"TTSWorker: 发送文本='{speech_text}' (原始='{speech}')")
+
                 _api_cfg = _config.config.api_config
                 _split_enabled = getattr(_api_cfg, "tts_split_enabled", False)
                 _max_len = getattr(_api_cfg, "tts_max_sentence_length", 15)
 
                 _sentences: list[str] = []
                 if _split_enabled:
-                    _pieces = re.split(r'(?<=[。！？，、；：\.!\?,;:])', speech_text)
+                    _pieces = re.split(r'(?<=[。！？\.!?])', speech_text)
                     _pieces = [s.strip() for s in _pieces if s.strip()]
                     _cur = ""
                     for _p in _pieces:
@@ -192,20 +195,10 @@ class DefaultCharacterTtsHandler(MessageHandler):
 
                 _speed = character_config.speech_speed
                 if not _sentences or len(_sentences) <= 1:
-                    audio_path = rt.tts_manager.generate_tts(
-                        speech_text,
-                        text_processor=text_processor,
-                        ref_audio_path=ref_audio_path,
-                        prompt_text=prompt_text,
-                        prompt_lang=character_config.prompt_lang,
-                        character_name=name_s,
-                        speed_factor=_speed,
-                    )
-                else:
-                    _asset_str = str(asset_id)
-                    for _i, _sent in enumerate(_sentences):
-                        _path = rt.tts_manager.generate_tts(
-                            _sent,
+                    audio_path = None
+                    for _retry in range(3):
+                        audio_path = rt.tts_manager.generate_tts(
+                            speech_text,
                             text_processor=text_processor,
                             ref_audio_path=ref_audio_path,
                             prompt_text=prompt_text,
@@ -213,18 +206,43 @@ class DefaultCharacterTtsHandler(MessageHandler):
                             character_name=name_s,
                             speed_factor=_speed,
                         )
+                        if audio_path:
+                            break
+                        print(f"TTSWorker: 第{_retry+1}次生成失败，重试中...")
+                        time.sleep(1)
+                else:
+                    _asset_str = str(asset_id)
+                    for _i, _sent in enumerate(_sentences):
+                        _path = None
+                        for _retry in range(3):
+                            _path = rt.tts_manager.generate_tts(
+                                _sent,
+                                text_processor=text_processor,
+                                ref_audio_path=ref_audio_path,
+                                prompt_text=prompt_text,
+                                prompt_lang=character_config.prompt_lang,
+                                character_name=name_s,
+                                speed_factor=_speed,
+                            )
+                            if _path:
+                                break
+                            print(f"TTSWorker: 第{_retry+1}次生成失败，重试中... '{_sent}'")
+                            time.sleep(1)
+                        if not _path:
+                            print(f"TTSWorker: 语音生成失败，跳过该句: '{_sent}'")
+                            continue
                         _is_first = _i == 0
                         _is_last = _i == len(_sentences) - 1
                         rt.audio_path_queue.put(TTSOutputMessage(
-                            audio_path=_path or "",
+                            audio_path=_path,
                             name=name_s,
-                            text=speech if _is_first else "",
+                            text=_sent if _is_first else _sent,
                             asset_id=_asset_str if _is_first else _asset_str,
                             effect=msg.effect if _is_first else "",
                             is_final_segment=_is_last,
-                            timeout=None if _is_first else 0,
+                            timeout=None,
                         ))
-                    return  # already emitted per-sentence, skip final tts_emit_to_ui_queue
+                    return
             finally:
                 _hide_tts_busy()
         else:

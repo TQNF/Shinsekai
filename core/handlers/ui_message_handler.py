@@ -207,9 +207,11 @@ class CharacterDialogUiHandler(UIOutputMessageHandler):
             ui.resolve_effect(
                 effect=effect, args={"character_name": character_name}, after_dialog=False
             )
+        elif speech:
+            color = character_config.color if character_config else "#84C2D5"
+            ui.update_dialog(character_name, speech, color, is_system=False)
 
         _tmo = out.timeout
-        min_stop_time = _tmo if (_tmo is not None and _tmo > 0) else len(speech) // 8
         start_time = time.perf_counter()
         audio_played = False
         ch.current_audio_path = audio_path
@@ -218,8 +220,10 @@ class CharacterDialogUiHandler(UIOutputMessageHandler):
         tts_sound = None
         if dc and audio_path and Path(audio_path).exists():
             try:
+                if dc.get_busy():
+                    dc.stop()
+                    time.sleep(0.1)
                 tts_sound = pygame.mixer.Sound(audio_path)
-                # Apply character volume
                 vol = 1.0
                 if character_config:
                     vol = float(getattr(character_config, 'speech_volume', 1.0) or 1.0)
@@ -231,21 +235,46 @@ class CharacterDialogUiHandler(UIOutputMessageHandler):
                     character_name,
                 )
                 ui.post_pause_asr()
-                while dc.get_busy() and ev and not ev.is_set():
-                    time.sleep(0.1)
-                time.sleep(0.2)
+                try:
+                    audio_len = tts_sound.get_length()
+                except Exception:
+                    audio_len = 0
+                if audio_len <= 0:
+                    try:
+                        import wave
+                        with wave.open(audio_path, 'rb') as wf:
+                            audio_len = wf.getnframes() / wf.getframerate()
+                    except Exception:
+                        audio_len = 0
+                print(f"UIWorker: 音频时长={audio_len:.2f}s, 文件={audio_path}")
+                if audio_len > 0:
+                    wait_until = time.perf_counter() + audio_len + 0.5
+                    while time.perf_counter() < wait_until and ev and not ev.is_set():
+                        time.sleep(0.05)
+                    elapsed = time.perf_counter() - (wait_until - audio_len - 0.5)
+                    print(f"UIWorker: 播放完成, 实际等待={elapsed:.2f}s")
+                else:
+                    while dc.get_busy() and ev and not ev.is_set():
+                        time.sleep(0.05)
+                    time.sleep(0.5)
+                if not (ev and ev.is_set()):
+                    time.sleep(0.5)
             except Exception as e:
                 print(f"UIWorker: 播放音频时出错: {e}")
             finally:
-                if audio_played and tts_sound is not None:
+                if ev and ev.is_set() and tts_sound is not None:
                     try:
-                        pygame.mixer.Sound.stop(tts_sound)
+                        dc.stop()
                     except Exception:
                         pass
                 ch.current_audio_path = None
         end_time = time.perf_counter()
         if ev and not ev.is_set():
-            remaining = min_stop_time - (end_time - start_time)
+            if audio_played:
+                remaining = 0.3 - (end_time - start_time)
+            else:
+                min_stop_time = _tmo if (_tmo is not None and _tmo > 0) else max(len(speech) / 5, 1.5)
+                remaining = min_stop_time - (end_time - start_time)
             if remaining > 0:
                 ev.wait(timeout=remaining)
         if is_final:
