@@ -49,7 +49,7 @@ class TestTTSManagerWithMock:
             prompt_text="Hello",
             prompt_lang="en",
             character_name="TestChar",
-            speed_factor=1.0,
+            speed_factor=1.25,
         )
         assert result is not None
         assert len(mock_tts_adapter.call_history) == 1

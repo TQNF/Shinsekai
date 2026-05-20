@@ -258,8 +258,8 @@ class LLMManager:
         self.compact_manager = CompactManager(adapter, max_tokens, compact_threshold)
         self.generation_config = generation_config or {}
         self.set_user_template(user_template)
-        self.tools_definitions = tool_manager.get_definitions(groups="default")  # 初始仅 default 组
-        self._active_tool_groups: list = ["default"]  # LRU: most recent first
+        self.tools_definitions = tool_manager.get_definitions(groups=["default", "memory"])
+        self._active_tool_groups: list = ["default", "memory"]  # LRU: most recent first
         self._max_active_groups = 5
         self.tools_manager = tool_manager
         self.tool_executor = tool_executor
@@ -437,6 +437,8 @@ class LLMManager:
                         if tc.index not in full_tool_calls:
                             full_tool_calls[tc.index] = tc
                         elif tc.function and tc.function.arguments:
+                            if full_tool_calls[tc.index].function.arguments is None:
+                                full_tool_calls[tc.index].function.arguments = ""
                             full_tool_calls[tc.index].function.arguments += tc.function.arguments
                 r_part = getattr(delta, "reasoning_content", None)
                 if r_part:

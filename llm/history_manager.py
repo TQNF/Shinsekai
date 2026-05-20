@@ -6,6 +6,51 @@ import re
 from PySide6.QtWidgets import QApplication
 
 
+def _repair_json_string(t: str) -> str:
+    """Walk the text tracking JSON string boundaries.
+
+    Inside a string value all ASCII control characters (including
+    literal newlines) are escaped.  When a newline inside a string is
+    followed by JSON structural tokens (``{``, ``}``, ``]``) the
+    heuristic closes the string first — fixing LLM outputs that are
+    missing a final ``\"`` on long speech fields.
+    """
+    tail = t
+    result: list[str] = []
+    in_string = False
+    escaped = False
+    i = 0
+    while i < len(tail):
+        ch = tail[i]
+        i += 1
+        if escaped:
+            escaped = False
+            result.append(ch)
+            continue
+        if ch == "\\":
+            escaped = True
+            result.append(ch)
+            continue
+        if ch == '"':
+            in_string = not in_string
+            result.append(ch)
+            continue
+        if in_string and ord(ch) < 0x20:
+            if ord(ch) in (0x0A, 0x0D):
+                ahead = tail[i:].lstrip(" \t\r\n")
+                if ahead and ahead[0] in "]}{[":
+                    result.append('"')
+                    result.append(ch)
+                    in_string = False
+                    continue
+            result.append(f"\\u{ord(ch):04x}")
+            continue
+        result.append(ch)
+    if in_string:
+        result.append('"')
+    return "".join(result)
+
+
 def parse_assistant_dialog_content(content: Any) -> list:
     """
     将 assistant 消息的 content 解析为 dialog 列表。
@@ -24,14 +69,17 @@ def parse_assistant_dialog_content(content: Any) -> list:
     try:
         parsed = json.loads(t)
     except json.JSONDecodeError:
-        i, j = t.find("{"), t.rfind("}")
-        if i >= 0 and j > i:
-            try:
-                parsed = json.loads(t[i : j + 1])
-            except json.JSONDecodeError:
+        try:
+            parsed = json.loads(_repair_json_string(t))
+        except json.JSONDecodeError:
+            i, j = t.find("{"), t.rfind("}")
+            if i >= 0 and j > i:
+                try:
+                    parsed = json.loads(t[i : j + 1])
+                except json.JSONDecodeError:
+                    return []
+            else:
                 return []
-        else:
-            return []
     if not isinstance(parsed, dict):
         return []
     dialog = parsed.get("dialog", [])
@@ -54,18 +102,30 @@ class HistoryManager:
         return self.chat_history
 
     def save_chat_history(self, file_path, history):
-        """根据提供的文件名保存聊天记录到 JSON 文件。"""
+        """根据提供的文件名保存聊天记录到 JSON 文件。保存时清理冗余字段和无效消息。"""
         if not file_path:
             print("没有提供历史文件名，跳过保存。")
             return
         history_path = Path(file_path)
         try:
+            cleaned = []
+            for msg in history:
+                role = msg.get("role", "")
+                if role == "tool":
+                    continue
+                if role == "assistant" and not msg.get("content", "").strip() and msg.get("tool_calls"):
+                    continue
+                cleaned_msg = {}
+                for k, v in msg.items():
+                    if k in ("reasoning_content", "tool_calls"):
+                        continue
+                    cleaned_msg[k] = v
+                cleaned.append(cleaned_msg)
             history_path.parent.mkdir(parents=True, exist_ok=True)
             with open(history_path, 'w', encoding='utf-8') as f:
-                json.dump(history, f, ensure_ascii=False, indent=4)
+                json.dump(cleaned, f, ensure_ascii=False, indent=4)
             print(f"聊天记录已保存到 {history_path}")
         except Exception as e:
-            # traceback.print_exc()
             print(f"保存聊天记录失败: {e}")
 
     def load_chat_history(self,file_path):
