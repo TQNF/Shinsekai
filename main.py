@@ -177,7 +177,7 @@ def main():
             "repetition_penalty": float(config.config.api_config.repetition_penalty),
             "presence_penalty": float(config.config.api_config.presence_penalty),
             "frequency_penalty": float(config.config.api_config.frequency_penalty),
-            "max_tokens": 4096,
+            "max_tokens": 16384, #-- 调整为 16384，与 Deepseek-v4-pro 兼容
         },
     )
 

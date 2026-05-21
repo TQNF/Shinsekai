@@ -87,6 +87,9 @@ class GPTSoVitsAdapter(TTSAdapter):
             "text_split_method": "cut5",
             "batch_size": 1,
             "speed_factor": kwargs.get("speed_factor", 1.0),
+            "temperature": kwargs.get("temperature", 2.0), 
+            "top_k": kwargs.get("top_k", 15),
+            "top_p": kwargs.get("top_p", 1.0),
         }
 
         try:

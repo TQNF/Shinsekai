@@ -170,7 +170,6 @@ class DefaultCharacterTtsHandler(MessageHandler):
                 if text_processor:
                     speech_text = text_processor.remove_parentheses(speech_text)
 
-                speech_text = re.sub(r'[\u2014\u2013—\-–]{2,}', '', speech_text)
                 print(f"TTSWorker: 发送文本='{speech_text}' (原始='{speech}')")
 
                 _api_cfg = _config.config.api_config
@@ -179,7 +178,9 @@ class DefaultCharacterTtsHandler(MessageHandler):
 
                 _sentences: list[str] = []
                 if _split_enabled:
-                    _pieces = re.split(r'(?<=[。！？\.!?])', speech_text)
+                    speech_text = re.sub(r'[——]+', '，', speech_text)
+                    speech_text = speech_text.lstrip('，')
+                    _pieces = re.split(r'(?<=[。！？，、；：\.!\?,;:])', speech_text)
                     _pieces = [s.strip() for s in _pieces if s.strip()]
                     _cur = ""
                     for _p in _pieces:
@@ -236,7 +237,7 @@ class DefaultCharacterTtsHandler(MessageHandler):
                         rt.audio_path_queue.put(TTSOutputMessage(
                             audio_path=_path,
                             name=name_s,
-                            text=_sent if _is_first else _sent,
+                            text=speech if _is_first else "",
                             asset_id=_asset_str if _is_first else _asset_str,
                             effect=msg.effect if _is_first else "",
                             is_final_segment=_is_last,
